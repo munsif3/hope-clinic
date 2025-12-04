@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper to get user role from Firestore directly (Spark Plan compatible)
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isDoctor() {
+      return isAuthenticated() && getUserRole() == 'doctor';
+    }
+    
+    function isAssistant() {
+      return isAuthenticated() && getUserRole() == 'assistant';
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Only doctor can manage users, or user can read their own profile
+      allow create, update, delete: if isDoctor();
+    }
+
+    match /patients/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isDoctor() || isAssistant();
+      allow delete: if isDoctor();
+    }
+
+    match /visits/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isDoctor() || isAssistant();
+      allow delete: if isDoctor();
+    }
+
+    match /inventory/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isDoctor();
+      allow update: if isDoctor()
+                    || (isAssistant()
+                        && request.resource.data.keys().hasOnly(['quantity','notes','updatedAt']));
+      allow delete: if isDoctor();
+    }
+
+    match /followups/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isDoctor() || isAssistant();
+      allow delete: if isDoctor();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
