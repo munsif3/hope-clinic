@@ -2,15 +2,13 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+import Loader from './Loader';
+
 export default function ProtectedRoute({ children }) {
     const { currentUser, loading } = useAuth();
 
     if (loading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-2xl font-medium text-slate-500">Loading...</div>
-            </div>
-        );
+        return <Loader text="Checking authentication..." fullScreen />;
     }
 
     if (!currentUser) {

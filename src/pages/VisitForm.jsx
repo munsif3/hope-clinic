@@ -2,34 +2,36 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../config/firebase';
 import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Save, Mic, MicOff, ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { Save, Mic, MicOff, ArrowLeft } from 'lucide-react';
+import PrescriptionListInput from '../components/PrescriptionListInput';
 
 export default function VisitForm() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const initialPatientId = searchParams.get('patientId') || '';
+    const followupId = searchParams.get('followupId'); // Get followupId from URL
 
     const [patients, setPatients] = useState([]);
-    const [inventory, setInventory] = useState([]);
     const [formData, setFormData] = useState({
         patientId: initialPatientId,
-        date: new Date().toISOString().split('T')[0],
+        patientId: initialPatientId,
+        date: (() => {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        })(),
         time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
         complaint: '',
         diagnosis: '',
         notes: '',
-        prescription: '',
+        prescriptions: [], // Array of prescription objects
         consultationFee: '',
         medicineFee: '',
-        nextVisitDate: ''
+        nextVisitDate: '',
+        nextVisitTime: '' // New field for time
     });
-
-    // Medicine Selection State
-    const [selectedMedicines, setSelectedMedicines] = useState([]);
-    const [currentMedId, setCurrentMedId] = useState('');
-    const [currentMedQty, setCurrentMedQty] = useState(1);
-    const [showNewMedForm, setShowNewMedForm] = useState(false);
-    const [newMedData, setNewMedData] = useState({ name: '', sellingPrice: '', stock: '100', unit: 'pcs' });
 
     const [loading, setLoading] = useState(false);
     const [isListening, setIsListening] = useState(false);
@@ -41,11 +43,6 @@ export default function VisitForm() {
             const qPatients = query(collection(db, 'patients'), orderBy('name'));
             const snapPatients = await getDocs(qPatients);
             setPatients(snapPatients.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-            // Fetch Inventory
-            const qInventory = query(collection(db, 'inventory'), orderBy('name'));
-            const snapInventory = await getDocs(qInventory);
-            setInventory(snapInventory.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         };
         fetchData();
 
@@ -73,18 +70,6 @@ export default function VisitForm() {
         }
     }, []);
 
-    // Update Medicine Fee when selected medicines change
-    useEffect(() => {
-        const totalMedCost = selectedMedicines.reduce((sum, item) => sum + (item.price * item.qty), 0);
-        setFormData(prev => ({ ...prev, medicineFee: totalMedCost }));
-
-        // Auto-generate prescription text from selected medicines
-        if (selectedMedicines.length > 0) {
-            const prescriptionText = selectedMedicines.map(m => `${m.name} - ${m.qty} ${m.unit}`).join('\n');
-            setFormData(prev => ({ ...prev, prescription: prescriptionText }));
-        }
-    }, [selectedMedicines]);
-
     const toggleListening = () => {
         if (isListening) {
             recognitionRef.current.stop();
@@ -100,50 +85,8 @@ export default function VisitForm() {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleAddMedicine = () => {
-        if (!currentMedId) return;
-        const med = inventory.find(i => i.id === currentMedId);
-        if (med) {
-            setSelectedMedicines(prev => [
-                ...prev,
-                {
-                    id: med.id,
-                    name: med.name,
-                    price: Number(med.sellingPrice || 0),
-                    unit: med.unit,
-                    qty: Number(currentMedQty)
-                }
-            ]);
-            setCurrentMedId('');
-            setCurrentMedQty(1);
-        }
-    };
-
-    const handleRemoveMedicine = (index) => {
-        setSelectedMedicines(prev => prev.filter((_, i) => i !== index));
-    };
-
-    const handleAddNewInventoryItem = async () => {
-        if (!newMedData.name) return;
-        try {
-            const docRef = await addDoc(collection(db, 'inventory'), {
-                ...newMedData,
-                stock: Number(newMedData.stock),
-                sellingPrice: Number(newMedData.sellingPrice),
-                createdAt: serverTimestamp()
-            });
-
-            const newItem = { id: docRef.id, ...newMedData, sellingPrice: Number(newMedData.sellingPrice) };
-            setInventory(prev => [...prev, newItem].sort((a, b) => a.name.localeCompare(b.name)));
-
-            // Select the new item immediately
-            setCurrentMedId(docRef.id);
-            setShowNewMedForm(false);
-            setNewMedData({ name: '', sellingPrice: '', stock: '100', unit: 'pcs' });
-        } catch (error) {
-            console.error("Error adding new inventory item:", error);
-            alert("Failed to add new item.");
-        }
+    const handlePrescriptionsChange = (newPrescriptions) => {
+        setFormData(prev => ({ ...prev, prescriptions: newPrescriptions }));
     };
 
     const handleSubmit = async (e) => {
@@ -159,19 +102,8 @@ export default function VisitForm() {
                 consultationFee: Number(formData.consultationFee),
                 medicineFee: Number(formData.medicineFee),
                 cost: totalCost,
-                selectedMedicines, // Store structured medicine data too
                 createdAt: serverTimestamp()
             });
-
-            // Update Inventory Stock
-            for (const med of selectedMedicines) {
-                if (med.id) {
-                    const medRef = doc(db, 'inventory', med.id);
-                    await updateDoc(medRef, {
-                        stock: increment(-med.qty)
-                    });
-                }
-            }
 
             // If next visit date is set, create a follow-up
             if (formData.nextVisitDate) {
@@ -179,8 +111,17 @@ export default function VisitForm() {
                     patientId: formData.patientId,
                     visitId: visitRef.id,
                     date: formData.nextVisitDate,
+                    time: formData.nextVisitTime || '', // Save time
                     status: 'pending',
                     notes: `Scheduled from visit on ${formData.date}`
+                });
+            }
+
+            // Mark triggering follow-up as completed (if any)
+            if (followupId) {
+                const followupRef = doc(db, 'followups', followupId);
+                await updateDoc(followupRef, {
+                    status: 'completed'
                 });
             }
 
@@ -296,125 +237,12 @@ export default function VisitForm() {
                     />
                 </div>
 
-                {/* Medicine Selection Section */}
-                <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 space-y-4">
-                    <div className="flex justify-between items-center">
-                        <h3 className="text-xl font-bold text-slate-800">Medicines from Inventory</h3>
-                        <button
-                            type="button"
-                            onClick={() => setShowNewMedForm(!showNewMedForm)}
-                            className="text-primary font-bold hover:underline"
-                        >
-                            {showNewMedForm ? 'Cancel New Item' : '+ Add New Item to Inventory'}
-                        </button>
-                    </div>
-
-                    {showNewMedForm && (
-                        <div className="bg-white p-4 rounded-lg border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">Name</label>
-                                <input
-                                    className="input"
-                                    value={newMedData.name}
-                                    onChange={e => setNewMedData({ ...newMedData, name: e.target.value })}
-                                    placeholder="Medicine Name"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">Selling Price</label>
-                                <input
-                                    className="input"
-                                    type="number"
-                                    value={newMedData.sellingPrice}
-                                    onChange={e => setNewMedData({ ...newMedData, sellingPrice: e.target.value })}
-                                    placeholder="Price"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">Unit</label>
-                                <input
-                                    className="input"
-                                    value={newMedData.unit}
-                                    onChange={e => setNewMedData({ ...newMedData, unit: e.target.value })}
-                                    placeholder="e.g. pcs"
-                                />
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleAddNewInventoryItem}
-                                className="btn btn-primary h-[46px]"
-                            >
-                                Add to Inventory
-                            </button>
-                        </div>
-                    )}
-
-                    <div className="flex gap-4 items-end">
-                        <div className="flex-1 space-y-1">
-                            <label className="text-sm font-medium text-slate-600">Select Medicine</label>
-                            <select
-                                className="input"
-                                value={currentMedId}
-                                onChange={(e) => setCurrentMedId(e.target.value)}
-                            >
-                                <option value="">Choose medicine...</option>
-                                {inventory.map(item => (
-                                    <option key={item.id} value={item.id}>
-                                        {item.name} (Stock: {item.stock}) - Rs.{item.sellingPrice}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="w-24 space-y-1">
-                            <label className="text-sm font-medium text-slate-600">Qty</label>
-                            <input
-                                type="number"
-                                className="input"
-                                value={currentMedQty}
-                                onChange={(e) => setCurrentMedQty(Number(e.target.value))}
-                                min="1"
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleAddMedicine}
-                            className="btn btn-secondary h-[46px]"
-                            disabled={!currentMedId}
-                        >
-                            Add
-                        </button>
-                    </div>
-
-                    {selectedMedicines.length > 0 && (
-                        <div className="space-y-2">
-                            {selectedMedicines.map((item, index) => (
-                                <div key={index} className="flex justify-between items-center bg-white p-3 rounded border border-slate-200">
-                                    <span>{item.name} x {item.qty} {item.unit}</span>
-                                    <div className="flex items-center gap-4">
-                                        <span className="font-bold">Rs.{item.price * item.qty}</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleRemoveMedicine(index)}
-                                            className="text-red-500 hover:bg-red-50 p-1 rounded"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                <div className="space-y-2">
-                    <label className="block text-lg font-medium text-slate-700">Prescription (Auto-filled)</label>
-                    <textarea
-                        name="prescription"
-                        value={formData.prescription}
-                        onChange={handleChange}
-                        rows="4"
-                        className="input resize-none"
-                        placeholder="Medications and dosage..."
+                {/* Prescription Section */}
+                <div className="border-t border-slate-100 pt-6">
+                    <PrescriptionListInput
+                        label="Prescriptions"
+                        items={formData.prescriptions}
+                        onChange={handlePrescriptionsChange}
                     />
                 </div>
 
@@ -450,15 +278,27 @@ export default function VisitForm() {
                     </div>
                 </div>
 
-                <div className="space-y-2">
-                    <label className="block text-lg font-medium text-slate-700">Next Scheduled Visit</label>
-                    <input
-                        type="date"
-                        name="nextVisitDate"
-                        value={formData.nextVisitDate}
-                        onChange={handleChange}
-                        className="input"
-                    />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <label className="block text-lg font-medium text-slate-700">Next Scheduled Visit (Date)</label>
+                        <input
+                            type="date"
+                            name="nextVisitDate"
+                            value={formData.nextVisitDate}
+                            onChange={handleChange}
+                            className="input"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="block text-lg font-medium text-slate-700">Time (Optional)</label>
+                        <input
+                            type="time"
+                            name="nextVisitTime"
+                            value={formData.nextVisitTime}
+                            onChange={handleChange}
+                            className="input"
+                        />
+                    </div>
                 </div>
 
                 <div className="pt-4">

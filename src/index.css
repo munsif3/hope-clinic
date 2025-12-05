@@ -1,14 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #0ea5e9;
-  --color-secondary: #10b981;
+  --color-primary: #4f46e5;
+  --color-secondary: #0d9488;
   --color-accent: #f59e0b;
   --color-background: #f8fafc;
   --color-surface: #ffffff;
   --color-text: #0f172a;
   --color-muted: #64748b;
   --font-sans: Inter, system-ui, sans-serif;
+  --font-heading: Outfit, Inter, system-ui, sans-serif;
+  --shadow-premium: 0 4px 20px -4px rgba(0, 0, 0, 0.05);
+  --shadow-premium-hover: 0 8px 30px -4px rgba(0, 0, 0, 0.08);
 }
 
 @layer base {
@@ -18,44 +21,58 @@
     @apply overflow-x-hidden;
   }
 
+  button {
+    cursor: pointer;
+  }
+
   body {
-    @apply bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 text-text antialiased;
-    font-size: 18px;
+    @apply bg-slate-50 text-text antialiased;
+    font-size: 16px;
+    /* Slightly smaller base for elegance, headings will pop */
     min-height: 100vh;
     word-wrap: break-word;
   }
 
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-heading;
+  }
+
   h1 {
-    @apply text-3xl font-bold mb-4 bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent;
+    @apply text-3xl font-bold mb-6 text-slate-800 tracking-tight;
   }
 
   h2 {
-    @apply text-2xl font-semibold mb-3 text-slate-800;
+    @apply text-2xl font-semibold mb-4 text-slate-800 tracking-tight;
   }
 
   h3 {
-    @apply text-xl font-medium mb-2 text-slate-700;
+    @apply text-lg font-semibold mb-2 text-slate-700;
   }
 }
 
 @layer components {
   .btn {
-    @apply px-6 py-3 rounded-xl font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm hover:shadow-md active:scale-95;
+    @apply px-6 py-2.5 rounded-xl font-medium transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-sm hover:shadow-md active:scale-95 flex items-center justify-center gap-2;
   }
 
   .btn-primary {
-    @apply bg-gradient-to-r from-sky-500 to-blue-600 text-white hover:from-sky-600 hover:to-blue-700 focus:ring-sky-400;
+    @apply bg-primary text-white hover:bg-indigo-700 focus:ring-indigo-500 shadow-indigo-200;
   }
 
   .btn-secondary {
-    @apply bg-gradient-to-r from-emerald-500 to-green-600 text-white hover:from-emerald-600 hover:to-green-700 focus:ring-emerald-400;
+    @apply bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 focus:ring-slate-200;
   }
 
   .card {
-    @apply bg-white/80 backdrop-blur-sm p-6 rounded-2xl shadow-md border border-slate-200/60 hover:shadow-lg transition-all duration-200;
+    @apply bg-white p-6 rounded-2xl shadow-premium border border-slate-100/50 hover:shadow-premium-hover transition-all duration-300;
   }
 
   .input {
-    @apply w-full px-4 py-3 rounded-xl border-2 border-slate-200 bg-white focus:border-sky-400 focus:ring-4 focus:ring-sky-100 text-lg transition-all duration-200 placeholder:text-slate-400;
+    @apply w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-4 focus:ring-indigo-50/50 text-base transition-all duration-200 placeholder:text-slate-400 outline-none;
   }
 }

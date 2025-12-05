@@ -4,6 +4,8 @@ import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebas
 import { useParams, Link } from 'react-router-dom';
 import { User, Calendar, FileText, Plus, Edit, ArrowLeft } from 'lucide-react';
 import { formatDate, formatCurrency } from '../utils/formatters';
+import Loader from '../components/Loader';
+import DynamicListDisplay from '../components/DynamicListDisplay';
 
 export default function PatientDetails() {
     const { id } = useParams();
@@ -47,7 +49,7 @@ export default function PatientDetails() {
     }, [id]);
 
     if (loading) {
-        return <div className="p-8 text-xl text-slate-500">Loading details...</div>;
+        return <Loader text="Loading details..." />;
     }
 
     if (!patient) {
@@ -91,31 +93,23 @@ export default function PatientDetails() {
                         </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <div>
-                            <p className="text-slate-500 font-medium mb-1">Past History / Other Ailments</p>
-                            <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                                <p className="text-slate-700 whitespace-pre-wrap">
-                                    {patient.medicalHistory || "None recorded."}
-                                </p>
-                            </div>
-                        </div>
-                        <div>
-                            <p className="text-slate-500 font-medium mb-1">Family History</p>
-                            <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                                <p className="text-slate-700 whitespace-pre-wrap">
-                                    {patient.familyHistory || "None recorded."}
-                                </p>
-                            </div>
-                        </div>
-                        <div>
-                            <p className="text-slate-500 font-medium mb-1">Ongoing Medications</p>
-                            <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                                <p className="text-slate-700 whitespace-pre-wrap">
-                                    {patient.ongoingMedications || "None recorded."}
-                                </p>
-                            </div>
-                        </div>
+                    <div className="space-y-6">
+                        <DynamicListDisplay
+                            title="Past History / Other Ailments"
+                            items={patient.medicalHistory}
+                        />
+                        <DynamicListDisplay
+                            title="Family History"
+                            items={patient.familyHistory}
+                        />
+                        <DynamicListDisplay
+                            title="Ongoing Medications"
+                            items={patient.ongoingMedications}
+                        />
+                        <DynamicListDisplay
+                            title="Allergies"
+                            items={patient.allergies}
+                        />
                     </div>
                 </div>
             </div>

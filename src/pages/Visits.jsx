@@ -4,6 +4,7 @@ import { collection, query, orderBy, limit, getDocs, doc, getDoc } from 'firebas
 import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, User, FileText, Plus } from 'lucide-react';
 import { formatDate, formatCurrency } from '../utils/formatters';
+import Loader from '../components/Loader';
 
 export default function Visits() {
     const navigate = useNavigate();
@@ -54,7 +55,7 @@ export default function Visits() {
             </div>
 
             {loading ? (
-                <div className="text-center py-8 text-xl text-slate-500">Loading visits...</div>
+                <Loader text="Loading visits..." />
             ) : (
                 <div className="grid gap-4">
                     {visits.length === 0 ? (

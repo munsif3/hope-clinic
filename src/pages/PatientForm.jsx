@@ -3,6 +3,8 @@ import { db } from '../config/firebase';
 import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Save, ArrowLeft } from 'lucide-react';
+import Loader from '../components/Loader';
+import DynamicListInput from '../components/DynamicListInput';
 
 export default function PatientForm() {
     const { id } = useParams();
@@ -15,12 +17,33 @@ export default function PatientForm() {
         gender: 'Male',
         contact: '',
         address: '',
-        medicalHistory: '',
-        familyHistory: '',
-        ongoingMedications: ''
+        medicalHistory: [],
+        familyHistory: [],
+        ongoingMedications: [],
+        allergies: []
     });
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(isEditMode);
+
+    // Helper to migrate legacy data (string or old object) to new array format
+    const migrateToDynamicList = (data, fieldName) => {
+        let value = data[fieldName];
+        const today = new Date().toISOString().split('T')[0];
+
+        if (Array.isArray(value)) {
+            // Already an array, ensure all items have a date and 'name' key
+            return value.map(item => ({
+                name: item.name || item.condition || '', // Map 'condition' to 'name'
+                notes: item.notes || '',
+                date: item.date || today
+            }));
+        } else if (typeof value === 'string' && value.trim() !== '') {
+            // Convert legacy string to single item
+            return [{ name: 'History', notes: value, date: today }];
+        }
+
+        return [];
+    };
 
     useEffect(() => {
         if (isEditMode) {
@@ -29,7 +52,15 @@ export default function PatientForm() {
                     const docRef = doc(db, 'patients', id);
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
-                        setFormData(docSnap.data());
+                        const data = docSnap.data();
+
+                        setFormData({
+                            ...data,
+                            medicalHistory: migrateToDynamicList(data, 'medicalHistory'),
+                            familyHistory: migrateToDynamicList(data, 'familyHistory'),
+                            ongoingMedications: migrateToDynamicList(data, 'ongoingMedications'),
+                            allergies: migrateToDynamicList(data, 'allergies')
+                        });
                     } else {
                         console.error("No such patient!");
                         navigate('/patients');
@@ -49,21 +80,28 @@ export default function PatientForm() {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
+    const handleListChange = (field, newItems) => {
+        setFormData(prev => ({ ...prev, [field]: newItems }));
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
 
         try {
+            const dataToSave = {
+                ...formData,
+                updatedAt: serverTimestamp()
+            };
+
+            if (!isEditMode) {
+                dataToSave.createdAt = serverTimestamp();
+            }
+
             if (isEditMode) {
-                await updateDoc(doc(db, 'patients', id), {
-                    ...formData,
-                    updatedAt: serverTimestamp()
-                });
+                await updateDoc(doc(db, 'patients', id), dataToSave);
             } else {
-                await addDoc(collection(db, 'patients'), {
-                    ...formData,
-                    createdAt: serverTimestamp()
-                });
+                await addDoc(collection(db, 'patients'), dataToSave);
             }
 
             navigate('/patients');
@@ -76,7 +114,7 @@ export default function PatientForm() {
     };
 
     if (initialLoading) {
-        return <div className="p-8 text-xl text-slate-500">Loading patient data...</div>;
+        return <Loader text="Loading patient data..." />;
     }
 
     return (
@@ -158,39 +196,43 @@ export default function PatientForm() {
                         />
                     </div>
 
-                    <div className="space-y-2 md:col-span-2">
-                        <label className="block text-lg font-medium text-slate-700">Past History / Other Ailments</label>
-                        <textarea
-                            name="medicalHistory"
-                            value={formData.medicalHistory}
-                            onChange={handleChange}
-                            rows="3"
-                            className="input resize-none"
-                            placeholder="Any known conditions, allergies, or past surgeries..."
+                    <div className="md:col-span-2 border-t border-slate-100 my-4"></div>
+
+                    <div className="md:col-span-2">
+                        <DynamicListInput
+                            label="Past History / Other Ailments"
+                            items={formData.medicalHistory}
+                            onChange={(items) => handleListChange('medicalHistory', items)}
+                            placeholderName="Condition (e.g. Diabetes)"
                         />
                     </div>
 
-                    <div className="space-y-2 md:col-span-2">
-                        <label className="block text-lg font-medium text-slate-700">Family History</label>
-                        <textarea
-                            name="familyHistory"
-                            value={formData.familyHistory || ''}
-                            onChange={handleChange}
-                            rows="2"
-                            className="input resize-none"
-                            placeholder="e.g. Diabetes, Hypertension in family..."
+                    <div className="md:col-span-2">
+                        <DynamicListInput
+                            label="Family History"
+                            items={formData.familyHistory}
+                            onChange={(items) => handleListChange('familyHistory', items)}
+                            placeholderName="Condition (e.g. Hypertension)"
                         />
                     </div>
 
-                    <div className="space-y-2 md:col-span-2">
-                        <label className="block text-lg font-medium text-slate-700">Ongoing Medications (NCDs etc.)</label>
-                        <textarea
-                            name="ongoingMedications"
-                            value={formData.ongoingMedications || ''}
-                            onChange={handleChange}
-                            rows="2"
-                            className="input resize-none"
-                            placeholder="e.g. Metformin 500mg daily..."
+                    <div className="md:col-span-2">
+                        <DynamicListInput
+                            label="Ongoing Medications"
+                            items={formData.ongoingMedications}
+                            onChange={(items) => handleListChange('ongoingMedications', items)}
+                            placeholderName="Medication (e.g. Metformin)"
+                            placeholderNotes="Dosage and frequency..."
+                        />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <DynamicListInput
+                            label="Allergies"
+                            items={formData.allergies}
+                            onChange={(items) => handleListChange('allergies', items)}
+                            placeholderName="Allergen (e.g. Penicillin)"
+                            placeholderNotes="Reaction details..."
                         />
                     </div>
                 </div>

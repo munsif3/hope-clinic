@@ -3,6 +3,7 @@ import { db } from '../config/firebase';
 import { collection, addDoc, doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Save, ArrowLeft } from 'lucide-react';
+import Loader from '../components/Loader';
 
 export default function InventoryForm() {
     const { id } = useParams();
@@ -82,8 +83,10 @@ export default function InventoryForm() {
         }
     };
 
+
+
     if (initialLoading) {
-        return <div className="p-8 text-xl text-slate-500">Loading item...</div>;
+        return <Loader text="Loading item..." />;
     }
 
     return (

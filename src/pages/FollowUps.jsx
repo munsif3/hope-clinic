@@ -4,6 +4,7 @@ import { collection, query, where, getDocs, orderBy, doc, getDoc, updateDoc } fr
 import { Link } from 'react-router-dom';
 import { Calendar, CheckCircle, Clock } from 'lucide-react';
 import { formatDate } from '../utils/formatters';
+import Loader from '../components/Loader';
 
 export default function FollowUps() {
     const [followUps, setFollowUps] = useState([]);
@@ -65,7 +66,7 @@ export default function FollowUps() {
             <h1 className="text-3xl font-bold text-slate-800">Upcoming Follow-ups</h1>
 
             {loading ? (
-                <div className="text-center py-8 text-xl text-slate-500">Loading follow-ups...</div>
+                <Loader text="Loading follow-ups..." />
             ) : (
                 <div className="grid gap-4">
                     {followUps.length === 0 ? (
@@ -79,6 +80,12 @@ export default function FollowUps() {
                                     <div className="flex items-center gap-2 mb-2">
                                         <Calendar className="text-primary" size={24} />
                                         <span className="text-xl font-bold text-slate-800">{formatDate(item.date)}</span>
+                                        {item.time && (
+                                            <span className="text-lg font-semibold text-slate-600 ml-2 border-l border-slate-300 pl-2 flex items-center gap-1">
+                                                <Clock size={18} />
+                                                {item.time}
+                                            </span>
+                                        )}
                                         {new Date(item.date) < new Date() && (
                                             <span className="bg-red-100 text-red-600 text-sm px-2 py-1 rounded font-bold">Overdue</span>
                                         )}

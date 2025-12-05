@@ -60,49 +60,62 @@ export default function Layout() {
 
             {/* Sidebar */}
             <aside className={`
-        fixed inset-y-0 left-0 z-20 w-64 bg-white shadow-lg transform transition-transform duration-200 ease-in-out
+        fixed inset-y-0 left-0 z-20 w-72 bg-slate-900 text-white shadow-2xl transform transition-transform duration-300 ease-out
         md:relative md:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-                <div className="p-6 border-b border-slate-100 hidden md:block">
-                    <div className="flex items-center gap-3 mb-3">
-                        <img src="/logo.png" alt="Hope Clinic" className="w-12 h-12 flex-shrink-0" />
-                        <h1 className="text-2xl font-bold text-primary truncate">Hope Clinic</h1>
+                <div className="p-8 border-b border-slate-800/50 hidden md:block">
+                    <div className="flex items-center gap-4 mb-4">
+                        <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm">
+                            <img src="/logo.png" alt="Hope Clinic" className="w-10 h-10" />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl font-bold text-white tracking-tight font-heading leading-none">Hope Clinic</h1>
+                            <span className="text-xs text-indigo-300 font-medium tracking-wider uppercase">Management</span>
+                        </div>
                     </div>
-                    <p className="text-sm text-slate-500 truncate">
-                        {userRole === 'doctor' ? 'Doctor\'s Dashboard' : 'Assistant\'s Dashboard'}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1 truncate" title={userName}>
-                        {userName || 'User'}
-                    </p>
+                    <div className="bg-slate-800/50 rounded-xl p-4 mt-6 border border-slate-700/50">
+                        <p className="text-sm text-slate-300 font-medium">
+                            {userRole === 'doctor' ? 'Doctor\'s Portal' : 'Assistant\'s Portal'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1 truncate font-medium" title={userName}>
+                            {userName || 'User'}
+                        </p>
+                    </div>
                 </div>
 
-                <nav className="p-4 space-y-2">
+                <nav className="p-4 space-y-2 mt-2">
                     {navItems.map((item) => (
                         <NavLink
                             key={item.path}
                             to={item.path}
                             onClick={() => setSidebarOpen(false)}
                             className={({ isActive }) => `
-                flex items-center gap-3 px-4 py-4 rounded-xl text-lg font-medium transition-colors
+                flex items-center gap-4 px-6 py-4 rounded-xl text-base font-medium transition-all duration-200 group relative overflow-hidden
                 ${isActive
-                                    ? 'bg-primary text-white shadow-md'
-                                    : 'text-slate-600 hover:bg-slate-50 hover:text-primary'}
+                                    ? 'bg-primary text-white shadow-lg shadow-indigo-900/20'
+                                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
               `}
                         >
-                            <item.icon size={24} />
-                            {item.label}
+                            {({ isActive }) => (
+                                <>
+                                    <item.icon size={22} className={isActive ? 'animate-pulse' : ''} />
+                                    <span className="relative z-10">{item.label}</span>
+                                    {/* Hover Glow Effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                </>
+                            )}
                         </NavLink>
                     ))}
                 </nav>
 
-                <div className="absolute bottom-0 w-full p-4 border-t border-slate-100">
+                <div className="absolute bottom-0 w-full p-6 border-t border-slate-800/50 bg-slate-900">
                     <button
                         onClick={handleLogout}
-                        className="flex items-center gap-3 px-4 py-4 w-full text-lg font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                        className="flex items-center gap-3 px-6 py-4 w-full text-base font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-xl transition-all duration-200"
                     >
-                        <LogOut size={24} />
-                        Log Out
+                        <LogOut size={22} />
+                        Sign Out
                     </button>
                 </div>
             </aside>

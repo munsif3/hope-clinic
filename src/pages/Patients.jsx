@@ -3,6 +3,7 @@ import { db } from '../config/firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { Search, UserPlus, ChevronRight } from 'lucide-react';
+import Loader from '../components/Loader';
 
 export default function Patients() {
     const [patients, setPatients] = useState([]);
@@ -58,7 +59,7 @@ export default function Patients() {
             </div>
 
             {loading ? (
-                <div className="text-center py-8 text-xl text-slate-500">Loading patients...</div>
+                <Loader text="Loading patients..." />
             ) : (
                 <div className="grid gap-4">
                     {filteredPatients.length === 0 ? (
