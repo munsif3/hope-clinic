@@ -3,10 +3,13 @@ import React from 'react';
 export default function StructuredText({ text }) {
     if (!text) return <span className="text-slate-400 italic">None recorded.</span>;
 
-    const lines = text.split('\n').filter(line => line.trim() !== '');
+    const lines = String(text || '').split('\n').filter(line => line && typeof line.trim === 'function' && line.trim() !== '');
 
     // Check if the text actually uses the bullet format (starts with - or *)
-    const hasBullets = lines.some(line => line.trim().startsWith('-') || line.trim().startsWith('*'));
+    const hasBullets = lines.some(line => {
+        const t = line?.trim ? line.trim() : '';
+        return t.startsWith('-') || t.startsWith('*');
+    });
 
     if (!hasBullets) {
         return <p className="whitespace-pre-wrap text-slate-700">{text}</p>;

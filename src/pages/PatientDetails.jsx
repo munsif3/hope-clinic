@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
-import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { useParams, Link } from 'react-router-dom';
 import { User, Calendar, FileText, Plus, Edit, ArrowLeft } from 'lucide-react';
 import { formatDate, formatCurrency } from '../utils/formatters';

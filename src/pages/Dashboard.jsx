@@ -93,14 +93,7 @@ export default function Dashboard() {
                     const data = doc.data();
                     let patientName = 'Unknown';
                     if (data.patientId) {
-                        if (patientsMap[data.patientId]) {
-                            patientName = patientsMap[data.patientId];
-                        } else {
-                            const pSnap = await getDocs(query(collection(db, 'patients'), where('__name__', '==', data.patientId)));
-                            // Note: fetching individual patients inside loop is inefficient but acceptable for small datasets. 
-                            // Optimized above by pre-fetching all patients, but let's use the map we built.
-                            patientName = patientsMap[data.patientId] || 'Unknown';
-                        }
+                        patientName = patientsMap[data.patientId] || 'Unknown';
                     }
                     todayFollowupsList.push({ id: doc.id, patientName, ...data });
                 }

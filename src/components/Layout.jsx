@@ -16,7 +16,7 @@ import { useState } from 'react';
 import OfflineIndicator from './OfflineIndicator';
 
 export default function Layout() {
-    const { currentUser, userRole, userName } = useAuth();
+    const { userRole, userName } = useAuth();
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 

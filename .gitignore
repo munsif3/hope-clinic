@@ -37,3 +37,5 @@ firestore-debug.log
 dev-dist/
 sw.js
 workbox-*.js
+
+lint_report.txt

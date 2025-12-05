@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../config/firebase';
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Save, Mic, MicOff, ArrowLeft } from 'lucide-react';
 import PrescriptionListInput from '../components/PrescriptionListInput';
@@ -14,7 +14,7 @@ export default function VisitForm() {
     const [patients, setPatients] = useState([]);
     const [formData, setFormData] = useState({
         patientId: initialPatientId,
-        patientId: initialPatientId,
+
         date: (() => {
             const d = new Date();
             const year = d.getFullYear();
