@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { useParams, Link } from 'react-router-dom';
-import { User, Calendar, FileText, Plus, Edit, ArrowLeft } from 'lucide-react';
+import { User, Calendar, FileText, Plus, Edit, ArrowLeft, Printer } from 'lucide-react';
 import { formatDate, formatCurrency } from '../utils/formatters';
 import Loader from '../components/Loader';
 import DynamicListDisplay from '../components/DynamicListDisplay';
@@ -134,16 +134,6 @@ export default function PatientDetails() {
                                         <Calendar size={20} />
                                         <span>{formatDate(visit.date)}</span>
                                         {visit.time && <span className="text-slate-400">at {visit.time}</span>}
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="text-lg font-bold text-emerald-600">
-                                            {formatCurrency(visit.cost)}
-                                        </div>
-                                        {(visit.consultationFee || visit.medicineFee) && (
-                                            <div className="text-xs text-slate-400">
-                                                (Cons: {visit.consultationFee || 0} + Med: {visit.medicineFee || 0})
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
 
