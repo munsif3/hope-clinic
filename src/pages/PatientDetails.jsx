@@ -135,6 +135,14 @@ export default function PatientDetails() {
                                         <span>{formatDate(visit.date)}</span>
                                         {visit.time && <span className="text-slate-400">at {visit.time}</span>}
                                     </div>
+                                    <div className="flex gap-2">
+                                        <Link to={`/visits/${visit.id}/print`} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Print Visit">
+                                            <Printer size={20} />
+                                        </Link>
+                                        <Link to={`/visits/${visit.id}/edit`} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" title="Edit Visit">
+                                            <Edit size={20} />
+                                        </Link>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-3">
