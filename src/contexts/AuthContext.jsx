@@ -25,11 +25,12 @@ export function AuthProvider({ children }) {
                     if (userDoc.exists()) {
                         const userData = userDoc.data();
                         setUserRole(userData.role);
-                        setUserName(userData.name || user.displayName || user.email);
+                        // Check for name OR displayName in the Firestore document
+                        setUserName(userData.name || userData.displayName || user.displayName);
                     } else {
                         // Default or handle missing role
                         setUserRole(null);
-                        setUserName(user.displayName || user.email);
+                        setUserName(user.displayName);
                     }
                 } catch (error) {
                     console.error("Error fetching user role:", error);

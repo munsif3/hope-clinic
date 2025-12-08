@@ -4,13 +4,19 @@ import { db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import Loader from '../components/Loader';
 import { formatDate } from '../utils/formatters';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function PrintVisit() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { userName } = useAuth();
     const [visit, setVisit] = useState(null);
     const [patient, setPatient] = useState(null);
     const [loading, setLoading] = useState(true);
+
+    const clinicAddress = import.meta.env.VITE_CLINIC_ADDRESS || "No. 52/3A, Quarry Road, Dehiwala";
+    const clinicPhone = import.meta.env.VITE_CLINIC_PHONE || "0714422396";
+    const doctorName = userName || "Dr. MLU. Salma";
 
     useEffect(() => {
         const fetchData = async () => {
@@ -49,13 +55,11 @@ export default function PrintVisit() {
             <div className="border-b-2 border-slate-800 pb-4 mb-8 flex justify-between items-end">
                 <div>
                     <h1 className="text-4xl font-bold tracking-tight">HOPE CLINIC</h1>
-                    <p className="text-sm font-medium text-slate-600 mt-1">123 Health Street, Wellness City</p>
-                    <p className="text-sm font-medium text-slate-600">Ph: +91 98765 43210</p>
+                    <p className="text-sm font-medium text-slate-600 mt-1">{clinicAddress}</p>
+                    <p className="text-sm font-medium text-slate-600">Ph: {clinicPhone}</p>
                 </div>
                 <div className="text-right">
-                    <p className="font-bold text-lg">Dr. A. Smith, MD</p>
-                    <p className="text-sm text-slate-600">General Physician</p>
-                    <p className="text-slate-500 text-xs mt-1">Reg No: 123456</p>
+                    <p className="font-bold text-lg">{doctorName}</p>
                 </div>
             </div>
 
