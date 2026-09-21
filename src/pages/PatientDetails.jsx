@@ -3,15 +3,25 @@ import { db } from '../config/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { useParams, Link } from 'react-router-dom';
 import { User, Calendar, FileText, Plus, Edit, ArrowLeft, Printer } from 'lucide-react';
-import { formatDate, formatCurrency } from '../utils/formatters';
+import { formatDate } from '../utils/formatters';
+import VisitTreatment from '../components/VisitTreatment';
 import Loader from '../components/Loader';
 import DynamicListDisplay from '../components/DynamicListDisplay';
+import PatientSafetySummary from '../components/PatientSafetySummary';
+import PatientAppointments from '../components/PatientAppointments';
+import { patientIdentity } from '../utils/patients';
+import { compareVisits } from '../utils/consultations';
 
 export default function PatientDetails() {
     const { id } = useParams();
+    return <PatientRecord key={id} id={id} />;
+}
+
+function PatientRecord({ id }) {
     const [patient, setPatient] = useState(null);
     const [visits, setVisits] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -35,11 +45,11 @@ export default function PatientDetails() {
                         id: doc.id,
                         ...doc.data()
                     }))
-                    .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date desc
+                    .sort(compareVisits);
 
                 setVisits(visitsData);
-            } catch (error) {
-                console.error("Error fetching patient details:", error);
+            } catch {
+                setError(true);
             } finally {
                 setLoading(false);
             }
@@ -52,6 +62,8 @@ export default function PatientDetails() {
         return <Loader text="Loading details..." />;
     }
 
+    if (error) return <div role="alert" className="card space-y-3"><p>Patient history could not be loaded. Please try again.</p><button className="btn btn-secondary" onClick={() => window.location.reload()}>Try again</button></div>;
+
     if (!patient) {
         return <div className="p-8 text-xl text-red-500">Patient not found.</div>;
     }
@@ -59,14 +71,14 @@ export default function PatientDetails() {
     return (
         <div className="space-y-8">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <Link to="/patients" className="p-2 hover:bg-slate-100 rounded-full">
+            <div className="workflow-header">
+                <div className="flex items-start gap-3 min-w-0">
+                    <Link to="/patients" aria-label="Back to patients" className="p-2 hover:bg-slate-100 rounded-full">
                         <ArrowLeft size={28} />
                     </Link>
-                    <h1 className="text-3xl font-bold text-slate-800">{patient.name}</h1>
+                    <div className="min-w-0"><h1 className="break-words">{patient.name}</h1><p className="text-sm text-slate-600">{patientIdentity(patient)}</p></div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                     <Link to={`/patients/${id}/edit`} className="btn btn-secondary flex items-center gap-2">
                         <Edit size={20} />
                         Edit Profile
@@ -78,9 +90,12 @@ export default function PatientDetails() {
                 </div>
             </div>
 
-            {/* Patient Profile Card */}
-            <div className="card p-6 bg-white">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <PatientSafetySummary patient={patient} />
+            <PatientAppointments patientId={id} />
+            {/* Secondary history stays available without pushing recent treatment down. */}
+            <details className="workflow-panel">
+                <summary>Patient information & medical history</summary>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                     <div className="flex items-start gap-4">
                         <div className="bg-blue-100 p-3 rounded-full text-blue-600">
                             <User size={32} />
@@ -112,7 +127,7 @@ export default function PatientDetails() {
                         />
                     </div>
                 </div>
-            </div>
+            </details>
 
             {/* Visits History */}
             <div>
@@ -129,7 +144,7 @@ export default function PatientDetails() {
                     <div className="space-y-4">
                         {visits.map(visit => (
                             <div key={visit.id} className="card p-6 hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
-                                <div className="flex justify-between items-start mb-4">
+                                <div className="flex flex-wrap gap-3 justify-between items-start mb-4">
                                     <div className="flex items-center gap-2 text-slate-500 font-medium">
                                         <Calendar size={20} />
                                         <span>{formatDate(visit.date)}</span>
@@ -164,16 +179,12 @@ export default function PatientDetails() {
                                         </div>
                                     )}
 
-                                    {visit.prescription && (
-                                        <div className="bg-slate-50 p-3 rounded border border-slate-200">
-                                            <p className="font-bold text-slate-700 text-sm mb-1">Prescription:</p>
-                                            <p className="text-slate-800 whitespace-pre-wrap font-mono text-sm">{visit.prescription}</p>
-                                        </div>
-                                    )}
+                                    <VisitTreatment visit={visit} />
+                                    {visit.patientInstructions && <div className="whitespace-pre-wrap"><span className="font-bold">Patient instructions: </span>{visit.patientInstructions}</div>}
 
                                     {visit.nextVisitDate && (
                                         <div className="mt-2 text-sm font-medium text-blue-600">
-                                            Next Scheduled Visit: {formatDate(visit.nextVisitDate)}
+                                            Next Scheduled Visit: {formatDate(visit.nextVisitDate)} {visit.nextVisitTime || ''}
                                         </div>
                                     )}
                                 </div>

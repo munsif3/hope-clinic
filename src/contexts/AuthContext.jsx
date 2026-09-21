@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../config/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import { clearVisitDrafts } from '../utils/visitDrafts';
 
 const AuthContext = createContext();
 
@@ -38,6 +39,7 @@ export function AuthProvider({ children }) {
                 }
                 setCurrentUser(user);
             } else {
+                try { clearVisitDrafts(window.sessionStorage); } catch { /* Storage may be disabled. */ }
                 setCurrentUser(null);
                 setUserRole(null);
                 setUserName(null);

@@ -5,6 +5,7 @@ import { auth } from '../config/firebase';
 import { signOut } from 'firebase/auth';
 import {
     LayoutDashboard,
+    CalendarDays,
     Users,
     Stethoscope,
     Package,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import OfflineIndicator from './OfflineIndicator';
+import { clearVisitDrafts } from '../utils/visitDrafts';
 
 export default function Layout() {
     const { userRole, userName } = useAuth();
@@ -23,6 +25,7 @@ export default function Layout() {
     const handleLogout = async () => {
         try {
             await signOut(auth);
+            try { clearVisitDrafts(window.sessionStorage); } catch { /* Account-scoped drafts remain inaccessible in the UI. */ }
             navigate('/login');
         } catch (error) {
             console.error("Failed to log out", error);
@@ -30,9 +33,11 @@ export default function Layout() {
     };
 
     const navItems = [
+        { path: '/today', label: 'Today', icon: CalendarDays },
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },
         { path: '/patients', label: 'Patients', icon: Users },
         { path: '/visits', label: 'Visits', icon: Stethoscope },
+        { path: '/followups', label: 'Follow-ups', icon: CalendarDays },
         { path: '/inventory', label: 'Inventory', icon: Package },
     ];
 
@@ -40,12 +45,12 @@ export default function Layout() {
         <div className="min-h-screen bg-background flex flex-col md:flex-row">
             <OfflineIndicator />
             {/* Mobile Header */}
-            <div className="md:hidden bg-white p-4 flex justify-between items-center shadow-sm z-20">
+            <div className="clinic-navigation md:hidden bg-white p-4 flex justify-between items-center shadow-sm z-20">
                 <div className="flex items-center gap-2">
                     <img src="/logo.png" alt="Hope Clinic" className="w-8 h-8" />
                     <h1 className="text-xl font-bold text-primary">Hope Clinic</h1>
                 </div>
-                <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2">
+                <button aria-label={sidebarOpen ? "Close navigation" : "Open navigation"} aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2">
                     {sidebarOpen ? <X size={28} /> : <Menu size={28} />}
                 </button>
             </div>
@@ -59,8 +64,8 @@ export default function Layout() {
             )}
 
             {/* Sidebar */}
-            <aside className={`
-        fixed inset-y-0 left-0 z-20 w-72 bg-slate-900 text-white shadow-2xl transform transition-transform duration-300 ease-out
+            <aside className={`clinic-navigation
+        fixed inset-y-0 left-0 z-20 w-60 bg-slate-900 text-white shadow-2xl transform transition-transform duration-300 ease-out
         md:relative md:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
@@ -97,9 +102,9 @@ export default function Layout() {
                                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
               `}
                         >
-                            {({ isActive }) => (
+                            {() => (
                                 <>
-                                    <item.icon size={22} className={isActive ? 'animate-pulse' : ''} />
+                                    <item.icon size={22} aria-hidden="true" />
                                     <span className="relative z-10">{item.label}</span>
                                     {/* Hover Glow Effect */}
                                     <div className="absolute inset-0 bg-gradient-to-r from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -121,7 +126,7 @@ export default function Layout() {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden h-[calc(100vh-64px)] md:h-screen">
+            <main className="clinic-main flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden h-[calc(100vh-64px)] md:h-screen">
                 <div className="max-w-7xl mx-auto">
                     <Outlet />
                 </div>

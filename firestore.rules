@@ -19,37 +19,149 @@ service cloud.firestore {
       return isAuthenticated() && getUserRole() == 'assistant';
     }
 
+    function hasClinicAccess() {
+      return isDoctor() || isAssistant();
+    }
+
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (request.auth.uid == userId || hasClinicAccess());
       // Only doctor can manage users, or user can read their own profile
       allow create, update, delete: if isDoctor();
     }
 
     match /patients/{id} {
-      allow read: if isAuthenticated();
+      allow read: if hasClinicAccess();
       allow create, update: if isDoctor() || isAssistant();
       allow delete: if isDoctor();
     }
 
     match /visits/{id} {
-      allow read: if isAuthenticated();
-      allow create, update: if isDoctor() || isAssistant();
-      allow delete: if isDoctor();
+      allow read: if hasClinicAccess();
+      allow create: if hasClinicAccess() && validVisitAppointment(id);
+      allow update: if hasClinicAccess()
+                    && request.resource.data.get('appointmentId', '') == resource.data.get('appointmentId', '')
+                    && validVisitAppointment(id);
+      allow delete: if isDoctor() && resource.data.get('appointmentId', '') == '';
     }
 
     match /inventory/{id} {
-      allow read: if isAuthenticated();
-      allow create: if isDoctor();
-      allow update: if isDoctor()
+      allow read: if hasClinicAccess();
+      allow create: if isDoctor() && request.resource.data.stock is number && request.resource.data.stock >= 0;
+      allow update: if (isDoctor()
                     || (isAssistant()
-                        && request.resource.data.keys().hasOnly(['quantity','notes','updatedAt']));
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock','notes','updatedAt'])))
+                    && request.resource.data.stock is number && request.resource.data.stock >= 0;
       allow delete: if isDoctor();
     }
 
     match /followups/{id} {
-      allow read: if isAuthenticated();
+      allow read: if hasClinicAccess();
       allow create, update: if isDoctor() || isAssistant();
       allow delete: if isDoctor();
+    }
+
+    // Scheduling is additive. Slot ownership is verified after the entire
+    // transaction, so bypassing the UI cannot silently create an overlap.
+    function occupies(a) {
+      return a.status in ['booked', 'arrived', 'in_progress', 'completed'];
+    }
+    function covers(a, date, minute) {
+      return occupies(a) && a.date == date && minute >= a.startMinute && minute < a.startMinute + a.duration;
+    }
+    function slotPath(date, minute) {
+      return /databases/$(database)/documents/appointmentSlots/$(date + '_' + string(minute));
+    }
+    function ownsSlot(a, id, offset) {
+      return offset >= a.duration || getAfter(slotPath(a.date, a.startMinute + offset)).data.appointmentId == id;
+    }
+    function ownsAllSlots(a, id) {
+      return ownsSlot(a, id, 0) && ownsSlot(a, id, 15) && ownsSlot(a, id, 30) && ownsSlot(a, id, 45);
+    }
+    function releasedSlot(old, next, offset) {
+      return offset >= old.duration || covers(next, old.date, old.startMinute + offset)
+             || !existsAfter(slotPath(old.date, old.startMinute + offset));
+    }
+    function releasedOldSlots(old, next) {
+      return releasedSlot(old, next, 0) && releasedSlot(old, next, 15)
+             && releasedSlot(old, next, 30) && releasedSlot(old, next, 45);
+    }
+    function withinOpenSession(a) {
+      let s = get(/databases/$(database)/documents/clinicSessions/$(a.sessionId)).data;
+      return s.enabled && s.date == a.date && a.startMinute >= s.startMinute && a.startMinute + a.duration <= s.endMinute;
+    }
+    function appointmentShape(a) {
+      return a.keys().hasOnly(['patientId', 'sessionId', 'date', 'startMinute', 'duration', 'kind', 'status', 'visitId', 'revision', 'createdAt', 'updatedAt'])
+        && a.patientId is string && a.patientId.size() > 0 && a.visitId is string && a.visitId.size() > 0
+        && a.sessionId is string && a.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && a.startMinute is int && a.startMinute >= 0 && a.startMinute % 15 == 0 && a.startMinute + a.duration <= 1440
+        && a.duration in [30, 45, 60] && a.kind in ['booked', 'walk_in']
+        && a.status in ['booked', 'arrived', 'in_progress', 'completed', 'cancelled', 'no_show']
+        && a.revision is int && a.updatedAt == request.time;
+    }
+    function completedWithVisit(a, id) {
+      let v = getAfter(/databases/$(database)/documents/visits/$(a.visitId)).data;
+      return v.appointmentId == id && v.patientId == a.patientId;
+    }
+    function validVisitAppointment(id) {
+      let appointmentId = request.resource.data.get('appointmentId', '');
+      return appointmentId == '' || (
+        getAfter(/databases/$(database)/documents/appointments/$(appointmentId)).data.visitId == id
+        && getAfter(/databases/$(database)/documents/appointments/$(appointmentId)).data.patientId == request.resource.data.patientId
+        && getAfter(/databases/$(database)/documents/appointments/$(appointmentId)).data.status == 'completed');
+    }
+    function sessionShape(s) {
+      return s.keys().hasOnly(['date', 'startMinute', 'endMinute', 'enabled', 'createdAt', 'updatedAt'])
+        && s.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && s.startMinute is int && s.endMinute is int && s.startMinute >= 0 && s.endMinute <= 1440
+        && s.startMinute < s.endMinute && s.startMinute % 15 == 0 && s.endMinute % 15 == 0
+        && s.enabled is bool && s.updatedAt == request.time;
+    }
+    match /clinicSessions/{id} {
+      allow read: if hasClinicAccess();
+      allow create: if isDoctor() && sessionShape(request.resource.data) && request.resource.data.createdAt == request.time;
+      allow update: if isDoctor() && sessionShape(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled', 'updatedAt']);
+      allow delete: if false;
+    }
+    match /appointments/{id} {
+      allow read: if hasClinicAccess();
+      allow create: if hasClinicAccess() && appointmentShape(request.resource.data)
+        && request.resource.data.revision == 0 && request.resource.data.createdAt == request.time
+        && (request.resource.data.status == 'booked' || (request.resource.data.status == 'arrived' && request.resource.data.kind == 'walk_in'))
+        && exists(/databases/$(database)/documents/patients/$(request.resource.data.patientId))
+        && withinOpenSession(request.resource.data) && ownsAllSlots(request.resource.data, id);
+      allow update: if hasClinicAccess() && appointmentShape(request.resource.data)
+        && request.resource.data.revision == resource.data.revision + 1
+        && request.resource.data.patientId == resource.data.patientId && request.resource.data.visitId == resource.data.visitId
+        && request.resource.data.kind == resource.data.kind && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          (resource.data.status == 'booked' && request.resource.data.status == 'booked'
+            && withinOpenSession(request.resource.data) && ownsAllSlots(request.resource.data, id)
+            && releasedOldSlots(resource.data, request.resource.data))
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revision', 'updatedAt']) && (
+            (resource.data.status == 'booked' && request.resource.data.status == 'arrived')
+            || (resource.data.status == 'in_progress' && request.resource.data.status == 'arrived'
+                && !exists(/databases/$(database)/documents/visits/$(resource.data.visitId)))
+            || (resource.data.status in ['booked', 'arrived'] && request.resource.data.status == 'in_progress')
+            || (resource.data.status in ['booked', 'arrived'] && request.resource.data.status in ['cancelled', 'no_show']
+                && releasedOldSlots(resource.data, request.resource.data))
+            || (resource.data.status == 'in_progress' && request.resource.data.status == 'completed' && completedWithVisit(request.resource.data, id))
+          ))
+        );
+      allow delete: if false;
+    }
+    function validSlot(id, s) {
+      let a = getAfter(/databases/$(database)/documents/appointments/$(s.appointmentId)).data;
+      return s.keys().hasOnly(['appointmentId', 'date', 'minute']) && s.minute is int && s.minute % 15 == 0
+        && id == s.date + '_' + string(s.minute) && covers(a, s.date, s.minute);
+    }
+    match /appointmentSlots/{id} {
+      allow read: if hasClinicAccess();
+      allow create: if hasClinicAccess() && validSlot(id, request.resource.data);
+      allow update: if hasClinicAccess() && validSlot(id, request.resource.data)
+        && request.resource.data.appointmentId == resource.data.appointmentId;
+      allow delete: if hasClinicAccess()
+        && !covers(getAfter(/databases/$(database)/documents/appointments/$(resource.data.appointmentId)).data, resource.data.date, resource.data.minute);
     }
 
     match /{document=**} {

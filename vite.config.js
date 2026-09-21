@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['logo.png', 'logo-192.png', 'logo-512.png'],
       manifest: {
         name: 'Hope Clinic',
@@ -32,25 +32,13 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'firestore-cache',
-              expiration: {
-                maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 // 24 hours
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          }
-        ]
+        // Clinical requests are handled by the authenticated Firestore SDK.
+        // The service worker caches the application shell only.
+        runtimeCaching: [],
+        importScripts: ['/sw-cleanup.js'],
       },
       devOptions: {
-        enabled: true
+        enabled: false
       }
     })
   ],

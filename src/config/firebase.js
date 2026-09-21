@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
+import { getAuth, connectAuthEmulator } from "firebase/auth";
+import { initializeFirestore, persistentLocalCache, memoryLocalCache, connectFirestoreEmulator } from "firebase/firestore";
 
 // Firebase configuration from environment variables
 const firebaseConfig = {
@@ -13,12 +13,20 @@ const firebaseConfig = {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-const app = initializeApp(firebaseConfig);
+// Explicit local-only demo mode. A production build can never enable emulators.
+const useEmulators = import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === 'true';
+const app = initializeApp(useEmulators
+    ? { projectId: 'demo-hope-clinic', apiKey: 'demo-key', authDomain: 'localhost' }
+    : firebaseConfig);
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, {
-    localCache: persistentLocalCache()
+    localCache: useEmulators ? memoryLocalCache() : persistentLocalCache()
 });
 
 
 
+if (useEmulators) {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    connectFirestoreEmulator(db, '127.0.0.1', 8080);
+}
 export default app;

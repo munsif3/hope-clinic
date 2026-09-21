@@ -1,438 +1,335 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '../config/firebase';
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, doc, updateDoc, writeBatch, increment, getDoc, setDoc } from 'firebase/firestore';
-import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
+import { collection, getDocs, query, orderBy, doc, getDoc } from 'firebase/firestore';
+import { useNavigate, useSearchParams, useParams, Link } from 'react-router-dom';
 import { Save, Mic, MicOff, ArrowLeft } from 'lucide-react';
 import PrescriptionListInput from '../components/PrescriptionListInput';
 import InventoryQuickAddModal from '../components/InventoryQuickAddModal';
 import InvestigationListInput from '../components/InvestigationListInput';
+import Loader from '../components/Loader';
+import VisitTreatment from '../components/VisitTreatment';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
+import { newVisit, visitRevision, validateVisit } from '../utils/visits';
+import { previousVisits } from '../utils/consultations';
+import { patientIdentity } from '../utils/patients';
+import usePatientVisits from '../hooks/usePatientVisits';
+import PatientPicker from '../components/PatientPicker';
+import PatientSafetySummary from '../components/PatientSafetySummary';
+import PreviousVisitContext from '../components/PreviousVisitContext';
+import ConsultationReview from '../components/ConsultationReview';
+import { draftKey, readDraft, writeDraft } from '../utils/visitDrafts';
+import { saveVisit, VisitSaveError } from '../services/saveVisit';
 
 export default function VisitForm() {
-    const { id } = useParams(); // Visit ID for editing
-    const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
-    const initialPatientId = searchParams.get('patientId') || '';
-    const followupId = searchParams.get('followupId'); // Get followupId from URL
-    const { showToast } = useToast();
+    const { id } = useParams();
+    const [params] = useSearchParams();
+    const { currentUser } = useAuth();
+    const patientId = params.get('patientId') || '';
+    const followupId = params.get('followupId') || '';
+    const appointmentId = params.get('appointmentId') || '';
+    const scope = id ? 'edit:' + id : appointmentId ? 'appointment:' + appointmentId : 'new:' + patientId + ':' + followupId;
+    return <VisitEditor key={currentUser.uid + scope} id={id} initialPatientId={patientId} followupId={followupId} appointmentId={appointmentId} storageKey={draftKey(currentUser.uid, scope)} />;
+}
 
+function VisitEditor({ id, initialPatientId, followupId, appointmentId, storageKey }) {
+    const navigate = useNavigate();
+    const { showToast } = useToast();
+    const { currentUser, userRole, userName } = useAuth();
     const [patients, setPatients] = useState([]);
     const [inventory, setInventory] = useState([]);
+    const [formData, setFormData] = useState(() => newVisit(initialPatientId));
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
+    const [appointmentError, setAppointmentError] = useState('');
+    const [retry, setRetry] = useState(0);
+    const [loading, setLoading] = useState(false);
+    const [saveError, setSaveError] = useState('');
+    const [reviewOpen, setReviewOpen] = useState(false);
+    const errorRef = useRef(null);
+    const [dirty, setDirty] = useState(false);
+    const [recovery, setRecovery] = useState(null);
+    const [draftStatus, setDraftStatus] = useState('');
     const [isAddMedicineModalOpen, setIsAddMedicineModalOpen] = useState(false);
     const [newMedicineName, setNewMedicineName] = useState('');
-
-    // Ref to store original prescriptions for inventory adjustment
-    const originalPrescriptionsRef = useRef([]);
-
-    const [formData, setFormData] = useState({
-        patientId: initialPatientId,
-
-        date: (() => {
-            const d = new Date();
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        })(),
-        time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-        complaint: '',
-        diagnosis: '',
-        notes: '',
-        prescriptions: [], // Array of prescription objects
-        investigations: [], // Array of strings
-        consultationFee: '',
-        medicineFee: '',
-        nextVisitDate: '',
-        nextVisitTime: '' // New field for time
-    });
-
-    const [loading, setLoading] = useState(false);
+    const [medicineRow, setMedicineRow] = useState(null);
     const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef(null);
+    const revisionRef = useRef(null);
+    const [initialVisitId] = useState(() => id || doc(collection(db, 'visits')).id);
+    const visitIdRef = useRef(initialVisitId);
+    const savingRef = useRef(false);
+    const history = usePatientVisits(formData.patientId);
+    const earlier = previousVisits(history.visits, formData.patientId, id, formData.date, formData.time);
+    const selectedPatient = patients.find(patient => patient.id === formData.patientId);
+
+    useEffect(() => { if (saveError && !reviewOpen) errorRef.current?.focus(); }, [saveError, reviewOpen]);
 
     useEffect(() => {
-        const fetchData = async () => {
-            // Fetch Patients
-            const qPatients = query(collection(db, 'patients'), orderBy('name'));
-            const snapPatients = await getDocs(qPatients);
-            setPatients(snapPatients.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-            // Fetch Inventory
-            fetchInventory();
-
-            // Fetch Visit if Editing
-            if (id) {
-                try {
-                    const visitDoc = await getDoc(doc(db, 'visits', id));
-                    if (visitDoc.exists()) {
-                        const data = visitDoc.data();
-                        setFormData({ ...data, id: visitDoc.id });
-                        // Deep copy prescriptions to avoid reference issues
-                        originalPrescriptionsRef.current = JSON.parse(JSON.stringify(data.prescriptions || []));
-                    } else {
-                        showToast("Visit not found!", "error");
-                        navigate('/patients');
+        let active = true;
+        async function load() {
+            try {
+                const [patientSnapshot, inventorySnapshot, visitSnapshot, appointmentSnapshot] = await Promise.all([
+                    getDocs(query(collection(db, 'patients'), orderBy('name'))),
+                    getDocs(query(collection(db, 'inventory'), orderBy('name'))),
+                    id ? getDoc(doc(db, 'visits', id)) : Promise.resolve(null),
+                    appointmentId && !id ? getDoc(doc(db, 'appointments', appointmentId)) : Promise.resolve(null),
+                ]);
+                if (!active) return;
+                if (id && !visitSnapshot.exists()) throw new Error('missing-visit');
+                const appointment = appointmentSnapshot?.data();
+                if (appointmentId && !id) {
+                    if (!appointment || appointment.patientId !== initialPatientId || appointment.status !== 'in_progress') {
+                        setAppointmentError('This booking is not an active consultation. Return to Today to open its current state.');
+                        return;
                     }
-                } catch (error) {
-                    console.error("Error fetching visit:", error);
-                    showToast("Error fetching visit details", "error");
+                    visitIdRef.current = appointment.visitId;
                 }
+                setPatients(patientSnapshot.docs.map(item => ({ ...item.data(), id: item.id })));
+                setInventory(inventorySnapshot.docs.map(item => ({ ...item.data(), id: item.id })));
+                if (visitSnapshot) {
+                    const data = visitSnapshot.data();
+                    setFormData({ ...newVisit(), ...data });
+                    revisionRef.current = visitRevision(data);
+                }
+                try {
+                    const candidate = readDraft(window.sessionStorage, storageKey);
+                    if (candidate && (!id || candidate.visitId === id) && (!appointment || candidate.visitId === appointment.visitId) &&
+                        (!initialPatientId || candidate.form.patientId === initialPatientId)) setRecovery(candidate);
+                }
+                catch { setDraftStatus('unavailable'); }
+                setLoadError(false);
+            } catch {
+                if (active) setLoadError(true);
+            } finally {
+                if (active) setInitialLoading(false);
+            }
+        }
+        load();
+        return () => { active = false; };
+    }, [id, initialPatientId, appointmentId, retry, storageKey]);
+
+    useEffect(() => {
+        if (!dirty || initialLoading || recovery || loadError) return;
+        try {
+            writeDraft(window.sessionStorage, storageKey, {
+                visitId: visitIdRef.current, revision: revisionRef.current, form: formData,
+            });
+            setDraftStatus('saved');
+        } catch { setDraftStatus('unavailable'); }
+    }, [formData, dirty, initialLoading, recovery, loadError, storageKey]);
+
+    useEffect(() => {
+        if (!dirty) return;
+        const warn = event => { event.preventDefault(); event.returnValue = ''; };
+        const guardLinks = event => {
+            if (!event.target.closest('a[href]')) return;
+            if (savingRef.current || (draftStatus !== 'saved' &&
+                !window.confirm('Draft recovery is unavailable. Leave and lose these changes?'))) {
+                event.preventDefault();
+                event.stopPropagation();
             }
         };
-        fetchData();
+        window.addEventListener('beforeunload', warn);
+        document.addEventListener('click', guardLinks, true);
+        return () => {
+            window.removeEventListener('beforeunload', warn);
+            document.removeEventListener('click', guardLinks, true);
+        };
+    }, [dirty, draftStatus]);
 
-        // Speech Recognition Setup
-        if ('webkitSpeechRecognition' in window) {
-            const recognition = new window.webkitSpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US';
+    useEffect(() => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return;
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+        recognition.onresult = event => {
+            let transcript = '';
+            for (let index = event.resultIndex; index < event.results.length; index++) {
+                if (event.results[index].isFinal) transcript += event.results[index][0].transcript;
+            }
+            if (transcript && !savingRef.current) {
+                setFormData(previous => ({ ...previous, notes: (previous.notes + ' ' + transcript).trim() }));
+                setDirty(true);
+            }
+        };
+        recognition.onend = () => setIsListening(false);
+        recognition.onerror = () => { setIsListening(false); showToast('Dictation stopped. You can continue typing.', 'error'); };
+        recognitionRef.current = recognition;
+        return () => {
+            recognition.onresult = null; recognition.onend = null; recognition.onerror = null;
+            recognition.abort(); recognitionRef.current = null;
+        };
+    }, [showToast]);
 
-            recognition.onresult = (event) => {
-                let interimTranscript = '';
-                let finalTranscript = '';
-
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
-                    } else {
-                        interimTranscript += event.results[i][0].transcript;
-                    }
-                }
-
-                if (finalTranscript) {
-                    setFormData(prev => ({
-                        ...prev,
-                        notes: (prev.notes + ' ' + finalTranscript).trim()
-                    }));
-                }
-            };
-            recognitionRef.current = recognition;
-        }
-    }, [id, navigate, showToast]);
-
-    const fetchInventory = async () => {
-        const qInventory = query(collection(db, 'inventory'), orderBy('name'));
-        const snapInventory = await getDocs(qInventory);
-        setInventory(snapInventory.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    };
-
-    const toggleListening = () => {
-        if (!recognitionRef.current) {
-            showToast("Speech recognition not supported in this browser.", "error");
+    function toggleListening() {
+        if (!recognitionRef.current) return showToast('Dictation is not supported in this browser.', 'error');
+        try {
+            if (isListening) recognitionRef.current.stop();
+            else recognitionRef.current.start();
+            setIsListening(!isListening);
+        } catch { setIsListening(false); showToast('Could not start dictation. You can continue typing.', 'error'); }
+    }
+    function changeForm(update) {
+        setDirty(true); setSaveError('');
+        setFormData(previous => ({ ...previous, ...update }));
+    }
+    const handleChange = event => changeForm({ [event.target.name]: event.target.value });
+    const handlePrescriptionsChange = prescriptions => changeForm({ prescriptions });
+    const handleInvestigationsChange = investigations => changeForm({ investigations });
+    function handleOpenAddMedicine(name, index) {
+        setNewMedicineName(name); setMedicineRow(index); setIsAddMedicineModalOpen(true);
+    }
+    function handleMedicineAdded(item) {
+        setInventory(previous => [...previous, item].sort((a, b) => a.name.localeCompare(b.name)));
+        if (medicineRow != null) changeForm({ prescriptions: formData.prescriptions.map((row, index) =>
+            index === medicineRow ? { ...row, name: item.name, inventoryId: item.id } : row) });
+        showToast('Medicine added to inventory.', 'success');
+    }
+    function restoreDraft() {
+        visitIdRef.current = recovery.visitId;
+        revisionRef.current = recovery.revision;
+        setFormData({ ...newVisit(initialPatientId), ...recovery.form });
+        setDirty(true); setRecovery(null);
+    }
+    function discardDraft() {
+        try { window.sessionStorage.removeItem(storageKey); } catch { /* No clinical records are affected. */ }
+        setRecovery(null);
+    }
+    async function handleSubmit(event) {
+        event.preventDefault();
+        if (savingRef.current) return;
+        if (!navigator.onLine) {
+            setSaveError('You are offline. Keep this tab open and save the visit when you reconnect.');
             return;
         }
-        if (isListening) {
-            recognitionRef.current.stop();
-            setIsListening(false);
-        } else {
-            recognitionRef.current.start();
-            setIsListening(true);
-        }
-    };
-
-    const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
-    };
-
-    const handlePrescriptionsChange = (newPrescriptions) => {
-        setFormData(prev => ({ ...prev, prescriptions: newPrescriptions }));
-    };
-
-    const handleInvestigationsChange = (newInvestigations) => {
-        setFormData(prev => ({ ...prev, investigations: newInvestigations }));
-    };
-
-    const handleOpenAddMedicine = (name) => {
-        setNewMedicineName(name);
-        setIsAddMedicineModalOpen(true);
-    };
-
-    const handleMedicineAdded = (newItem) => {
-        setInventory(prev => [...prev, newItem].sort((a, b) => a.name.localeCompare(b.name)));
-        showToast(`Added ${newItem.name} to inventory`, "success");
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-
+        savingRef.current = true;
+        recognitionRef.current?.stop();
+        setLoading(true); setSaveError('');
         try {
-            const totalCost = Number(formData.consultationFee || 0) + Number(formData.medicineFee || 0);
-            const batch = writeBatch(db);
-
-            // Determine if creating or updating
-            const visitRef = id ? doc(db, 'visits', id) : doc(collection(db, 'visits'));
-
-            const visitData = {
-                ...formData,
-                consultationFee: Number(formData.consultationFee),
-                medicineFee: Number(formData.medicineFee),
-                cost: totalCost,
-                updatedAt: serverTimestamp()
-            };
-
-            if (!id) {
-                visitData.createdAt = serverTimestamp();
-            }
-
-            // Add/Update Visit to Batch
-            batch.set(visitRef, visitData, { merge: true });
-
-            // Handle Inventory Stock Logic
-            if (id) {
-                // If Editing: Revert ORIGINAL prescriptions first
-                for (const oldPrescription of originalPrescriptionsRef.current) {
-                    if (oldPrescription.inventoryId && oldPrescription.quantity) {
-                        const inventoryRef = doc(db, 'inventory', oldPrescription.inventoryId);
-                        batch.update(inventoryRef, {
-                            stock: increment(Number(oldPrescription.quantity))
-                        });
-                    }
-                }
-            }
-
-            // Then Apply NEW prescriptions (Deduct stock)
-            for (const prescription of formData.prescriptions) {
-                if (prescription.inventoryId && prescription.quantity) {
-                    const inventoryRef = doc(db, 'inventory', prescription.inventoryId);
-                    batch.update(inventoryRef, {
-                        stock: increment(-Number(prescription.quantity))
-                    });
-                }
-            }
-
-            // Triggering Follow-up Logic (Only for new visits)
-            if (!id && formData.nextVisitDate) {
-                const followupRef = doc(collection(db, 'followups'));
-                batch.set(followupRef, {
-                    patientId: formData.patientId,
-                    visitId: visitRef.id,
-                    date: formData.nextVisitDate,
-                    time: formData.nextVisitTime || '',
-                    status: 'pending',
-                    notes: `Scheduled from visit on ${formData.date}`
-                });
-            }
-
-            // Mark triggering follow-up as completed (only if new visit from follow-up)
-            if (!id && followupId) {
-                const followupRef = doc(db, 'followups', followupId);
-                batch.update(followupRef, {
-                    status: 'completed'
-                });
-            }
-
-            // Commit all changes
-            await batch.commit();
-
-            showToast("Visit saved successfully!", "success");
-            navigate(`/patients/${formData.patientId}`);
+            await saveVisit(db, {
+                visitId: visitIdRef.current, isNew: !id, expectedRevision: revisionRef.current,
+                form: formData, triggeringFollowupId: followupId,
+                appointmentId,
+                user: { uid: currentUser.uid, role: userRole, name: userName },
+            });
+            setDirty(false);
+            try { window.sessionStorage.removeItem(storageKey); } catch { /* The clinical save succeeded. */ }
+            showToast('Visit saved to the clinic.', 'success');
+            navigate('/patients/' + formData.patientId);
         } catch (error) {
-            console.error("Error saving visit:", error);
-            showToast("Failed to save visit.", "error");
-        } finally {
-            setLoading(false);
-        }
-    };
+            setSaveError(error instanceof VisitSaveError ? error.message :
+                error.code === 'permission-denied'
+                    ? 'Your account cannot complete this save. Your entries are kept; ask the clinic administrator to check access.'
+                    : 'The visit could not be saved. Your entries are kept. Check your connection and try again.');
+        } finally { savingRef.current = false; setLoading(false); }
+    }
+
+    if (initialLoading) return <Loader text="Loading consultation..." />;
+    if (appointmentError) return <div role="alert" className="workflow-error space-y-3"><p>{appointmentError}</p><Link className="btn btn-secondary" to="/today">Open Today</Link></div>;
+    if (loadError) return <div role="alert" className="card space-y-4"><p>Could not load the consultation. No changes have been saved.</p><button className="btn btn-secondary" onClick={() => { setInitialLoading(true); setRetry(value => value + 1); }}>Try again</button></div>;
+
+    if (!Array.isArray(formData.prescriptions) || !Array.isArray(formData.investigations)) return <div role="alert" className="workflow-error">This treatment format cannot be edited safely. Open the original patient record; no data was changed.</div>;
+
+    function requestReview(event) {
+        event.preventDefault();
+        const message = validateVisit(formData);
+        if (message) { setSaveError(message); return; }
+        setSaveError(''); setReviewOpen(true);
+    }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6">
-            <div className="flex items-center gap-4 mb-6">
-                <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-full">
-                    <ArrowLeft size={28} />
-                </button>
-                <h1 className="text-3xl font-bold text-slate-800">{id ? 'Edit Visit' : 'New Visit'}</h1>
-            </div>
-
-            <form onSubmit={handleSubmit} className="card p-8 space-y-8">
-                {/* Patient & Date Section */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                        <label className="block text-lg font-medium text-slate-700">Patient</label>
-                        <select
-                            name="patientId"
-                            value={formData.patientId}
-                            onChange={handleChange}
-                            required
-                            className="input"
-                            disabled={!!initialPatientId}
-                        >
-                            <option value="">Select Patient</option>
-                            {patients.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <label className="block text-lg font-medium text-slate-700">Date</label>
-                            <input
-                                type="date"
-                                name="date"
-                                value={formData.date}
-                                onChange={handleChange}
-                                required
-                                className="input"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="block text-lg font-medium text-slate-700">Time</label>
-                            <input
-                                type="time"
-                                name="time"
-                                value={formData.time}
-                                onChange={handleChange}
-                                required
-                                className="input"
-                            />
-                        </div>
-                    </div>
+        <div className="consultation-workspace space-y-5">
+            <header className="workflow-header">
+                <div className="min-w-0"><p className="workflow-eyebrow">{id ? 'Edit consultation' : 'New consultation'}</p>
+                    <h1>{selectedPatient?.name || 'Start a consultation'}</h1>
+                    {selectedPatient && <p className="text-sm text-slate-600">{patientIdentity(selectedPatient)}</p>}
                 </div>
-
-                {/* Clinical Details */}
-                <div className="space-y-2">
-                    <label className="block text-lg font-medium text-slate-700">Chief Complaint</label>
-                    <textarea
-                        name="complaint"
-                        value={formData.complaint}
-                        onChange={handleChange}
-                        rows="2"
-                        className="input resize-none"
-                        placeholder="Patient's main complaint..."
-                    />
+                <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => {
+                    if (!dirty || draftStatus === 'saved' || window.confirm('Draft recovery is unavailable. Leave and lose these changes?')) navigate(-1);
+                }}><ArrowLeft size={18} />Back</button>
+            </header>
+            {recovery && <section className="workflow-panel space-y-3" role="status">
+                <p>An unfinished consultation was found in this tab. Review it before saving to the clinic.</p>
+                <div className="flex flex-wrap gap-3"><button type="button" className="btn btn-primary" onClick={restoreDraft}>Restore draft</button>
+                    <button type="button" className="btn btn-secondary" onClick={discardDraft}>Discard draft</button></div>
+            </section>}
+            {saveError && <p ref={errorRef} tabIndex={-1} role="alert" className="workflow-error">{saveError}</p>}
+            {appointmentId && <p className="workflow-panel text-sm">Linked to the appointment. Saving this visit completes it on Today. Unsaved notes remain recoverable only in this browser tab. <Link className="workflow-link" to="/today">Return to Today</Link></p>}
+            {!formData.patientId && !recovery && <PatientPicker patients={patients} onSelect={value => navigate('/visits/new?patientId=' + encodeURIComponent(value))} />}
+            {formData.patientId && !selectedPatient && <p role="alert" className="workflow-error">The selected patient is no longer available. Open Patients to verify the record before continuing.</p>}
+            {selectedPatient && <>
+                <PatientSafetySummary patient={selectedPatient} />
+                <div className="consultation-grid">
+                    <form onSubmit={requestReview} noValidate className="min-w-0">
+                        <fieldset disabled={loading || Boolean(recovery)} className="workflow-panel consultation-entry min-w-0">
+                            <legend className="sr-only">Consultation details</legend>
+                            <section className="consultation-section">
+                                <h2>Today's consultation</h2>
+                                <details><summary>Visit date and time · {formData.date} · {formData.time}</summary>
+                                    <div className="grid sm:grid-cols-2 gap-4 mt-3">
+                                        <label className="workflow-field" htmlFor="date">Date<input id="date" name="date" type="date" className="input" value={formData.date} onChange={handleChange} required /></label>
+                                        <label className="workflow-field" htmlFor="time">Time<input id="time" name="time" type="time" className="input" value={formData.time} onChange={handleChange} required /></label>
+                                    </div>
+                                </details>
+                                <label className="workflow-field" htmlFor="complaint">Chief complaint / change since last visit
+                                    <textarea id="complaint" name="complaint" rows="2" className="input" value={formData.complaint} onChange={handleChange} placeholder="What brought the patient in today?" /></label>
+                                <label className="workflow-field" htmlFor="diagnosis">Diagnosis
+                                    <input id="diagnosis" name="diagnosis" className="input" value={formData.diagnosis} onChange={handleChange} required />
+                                    <span className="text-sm text-slate-600 font-normal">Required when saving a visit record. An unfinished recovery draft can remain incomplete.</span></label>
+                                <details open={Boolean(formData.notes) || undefined}><summary>Private clinical notes {formData.notes ? '· entered' : '(optional)'}</summary>
+                                    <div className="space-y-3 mt-3"><label className="workflow-field" htmlFor="notes">Clinical notes / improvements — not printed
+                                        <textarea id="notes" name="notes" rows="4" className="input" value={formData.notes} onChange={handleChange} /></label>
+                                        <button type="button" onClick={toggleListening} className="btn btn-secondary">{isListening ? <MicOff size={18} /> : <Mic size={18} />}{isListening ? 'Stop listening' : 'Dictate notes (English)'}</button>
+                                    </div>
+                                </details>
+                            </section>
+                            <section className="consultation-section">
+                                <h2>Treatment & patient advice</h2>
+                                {formData.prescription && <VisitTreatment visit={{ prescription: formData.prescription }} />}
+                                <PrescriptionListInput label="Prescriptions" items={formData.prescriptions} onChange={handlePrescriptionsChange} inventory={inventory}
+                                    onAddNewMedicine={userRole === 'doctor' ? handleOpenAddMedicine : undefined} />
+                                <label className="workflow-field" htmlFor="patientInstructions">Instructions for the patient — printed
+                                    <textarea id="patientInstructions" name="patientInstructions" rows="2" className="input" value={formData.patientInstructions} onChange={handleChange} /></label>
+                                <details open={formData.investigations.length > 0 || undefined}><summary>Investigations / labs {formData.investigations.length ? '· ' + formData.investigations.length : '(optional)'}</summary>
+                                    <div className="mt-3"><InvestigationListInput label="Investigations advised" items={formData.investigations} onChange={handleInvestigationsChange} /></div>
+                                </details>
+                            </section>
+                            <section className="consultation-section">
+                                <h2>Return plan & fees</h2>
+                                <details open={Boolean(formData.nextVisitDate || formData.nextVisitTime) || undefined}><summary>Follow-up date and time {formData.nextVisitDate ? '· ' + formData.nextVisitDate : '(optional)'}</summary>
+                                    <p className="text-sm text-slate-600 mt-3">This creates a follow-up record. Appointment capacity is not checked.</p>
+                                    <div className="grid sm:grid-cols-2 gap-4 mt-3">
+                                        <label className="workflow-field" htmlFor="nextVisitDate">Return date<input id="nextVisitDate" name="nextVisitDate" type="date" className="input" value={formData.nextVisitDate} onChange={handleChange} /></label>
+                                        <label className="workflow-field" htmlFor="nextVisitTime">Return time (optional)<input id="nextVisitTime" name="nextVisitTime" type="time" className="input" value={formData.nextVisitTime} onChange={handleChange} /></label>
+                                    </div>
+                                </details>
+                                <details open={Boolean(formData.consultationFee || formData.medicineFee) || undefined}><summary>Fees · Rs. {Number(formData.consultationFee || 0) + Number(formData.medicineFee || 0)}</summary>
+                                    <div className="grid sm:grid-cols-2 gap-4 mt-3">
+                                        <label className="workflow-field" htmlFor="consultationFee">Consultation fee (Rs.)<input id="consultationFee" name="consultationFee" type="number" min="0" step="any" className="input" value={formData.consultationFee} onChange={handleChange} /></label>
+                                        <label className="workflow-field" htmlFor="medicineFee">Medicine fee (Rs.)<input id="medicineFee" name="medicineFee" type="number" min="0" step="any" className="input" value={formData.medicineFee} onChange={handleChange} /></label>
+                                    </div>
+                                </details>
+                            </section>
+                        </fieldset>
+                        <footer className="consultation-actions">
+                            <div className="space-y-1"><p role="status" className="text-sm">{dirty ? draftStatus === 'saved' ? 'Recovery draft kept in this tab · not saved to clinic' : 'Draft recovery unavailable — keep this page open' : 'Not yet saved to clinic'}</p>
+                                <details><summary className="text-xs">About recovery</summary><p className="text-xs mt-1">Keep this tab open. Recovery lasts up to 24 hours and is cleared on sign-out. It is not shared with other devices.</p></details></div>
+                            <button type="submit" className="btn btn-primary" disabled={loading || Boolean(recovery)}><Save size={18} />Review & save</button>
+                        </footer>
+                    </form>
+                    <PreviousVisitContext key={selectedPatient.id + ':' + (earlier[0]?.id || '')} patient={selectedPatient}
+                        history={{ ...history, visits: earlier }} disabled={loading || Boolean(recovery)} onReuse={rows => {
+                            changeForm({ prescriptions: [...formData.prescriptions, ...rows] });
+                            showToast('Selected treatment added for review. Dispensed quantities and stock links were cleared.', 'success');
+                        }} />
                 </div>
-
-                <div className="space-y-2">
-                    <label className="block text-lg font-medium text-slate-700">Diagnosis</label>
-                    <input
-                        type="text"
-                        name="diagnosis"
-                        value={formData.diagnosis}
-                        onChange={handleChange}
-                        required
-                        className="input"
-                        placeholder="e.g. Viral Fever"
-                    />
-                </div>
-
-                <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                        <label className="block text-lg font-medium text-slate-700">Notes / Improvements (Speech-to-Text)</label>
-                        <button
-                            type="button"
-                            onClick={toggleListening}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition-colors ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                }`}
-                        >
-                            {isListening ? <><MicOff size={18} /> Stop Listening</> : <><Mic size={18} /> Start Listening</>}
-                        </button>
-                    </div>
-                    <textarea
-                        name="notes"
-                        value={formData.notes}
-                        onChange={handleChange}
-                        rows="4"
-                        className="input resize-none"
-                        placeholder="Clinical notes, improvements since last visit..."
-                    />
-                </div>
-
-                {/* Investigations Section */}
-                <div className="border-t border-slate-100 pt-6">
-                    <InvestigationListInput
-                        label="Investigations / Labs"
-                        items={formData.investigations}
-                        onChange={handleInvestigationsChange}
-                    />
-                </div>
-
-                {/* Prescription Section */}
-                <div className="border-t border-slate-100 pt-6">
-                    <PrescriptionListInput
-                        label="Prescriptions"
-                        items={formData.prescriptions}
-                        onChange={handlePrescriptionsChange}
-                        inventory={inventory}
-                        onAddNewMedicine={handleOpenAddMedicine}
-                    />
-                </div>
-
-                {/* Fees Section */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <div className="space-y-2">
-                        <label className="block text-lg font-medium text-slate-700">Consultation Fee (Rs.)</label>
-                        <input
-                            type="number"
-                            name="consultationFee"
-                            value={formData.consultationFee}
-                            onChange={handleChange}
-                            className="input"
-                            placeholder="0"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="block text-lg font-medium text-slate-700">Medicine Fee (Rs.)</label>
-                        <input
-                            type="number"
-                            name="medicineFee"
-                            value={formData.medicineFee}
-                            onChange={handleChange}
-                            className="input"
-                            placeholder="0"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="block text-lg font-medium text-slate-700">Total Cost (Rs.)</label>
-                        <div className="input bg-slate-100 flex items-center font-bold text-xl text-slate-800">
-                            {Number(formData.consultationFee || 0) + Number(formData.medicineFee || 0)}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Next Visit Section */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                        <label className="block text-lg font-medium text-slate-700">Next Scheduled Visit (Date)</label>
-                        <input
-                            type="date"
-                            name="nextVisitDate"
-                            value={formData.nextVisitDate}
-                            onChange={handleChange}
-                            className="input"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="block text-lg font-medium text-slate-700">Time (Optional)</label>
-                        <input
-                            type="time"
-                            name="nextVisitTime"
-                            value={formData.nextVisitTime}
-                            onChange={handleChange}
-                            className="input"
-                        />
-                    </div>
-                </div>
-
-                <div className="pt-4">
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="btn btn-primary w-full md:w-auto flex items-center justify-center gap-2 text-lg"
-                    >
-                        <Save size={24} />
-                        {loading ? 'Saving Visit...' : 'Save Visit Record'}
-                    </button>
-                </div>
-            </form>
-
-            <InventoryQuickAddModal
-                isOpen={isAddMedicineModalOpen}
-                onClose={() => setIsAddMedicineModalOpen(false)}
-                initialName={newMedicineName}
-                onAdded={handleMedicineAdded}
-            />
+            </>}
+            {reviewOpen && selectedPatient && <ConsultationReview patient={selectedPatient} visit={formData} loading={loading} error={saveError}
+                onCancel={() => { setReviewOpen(false); setSaveError(''); }} onSave={handleSubmit} />}
+            <InventoryQuickAddModal isOpen={isAddMedicineModalOpen} onClose={() => setIsAddMedicineModalOpen(false)} initialName={newMedicineName} onAdded={handleMedicineAdded} />
         </div>
     );
 }

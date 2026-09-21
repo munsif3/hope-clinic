@@ -16,6 +16,8 @@ import PrintVisit from './pages/PrintVisit';
 import Inventory from './pages/Inventory';
 import InventoryForm from './pages/InventoryForm';
 import FollowUps from './pages/FollowUps';
+import Today from './pages/Today';
+import AppUpdateNotice from './components/AppUpdateNotice';
 
 function App() {
   return (
@@ -31,6 +33,7 @@ function App() {
               </ProtectedRoute>
             }>
               <Route index element={<Dashboard />} />
+              <Route path="today" element={<Today />} />
               <Route path="patients" element={<Patients />} />
               <Route path="patients/new" element={<PatientForm />} />
               <Route path="patients/:id" element={<PatientDetails />} />
@@ -48,6 +51,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
           <ToastContainer />
+          <AppUpdateNotice />
         </ToastProvider>
       </AuthProvider>
     </Router>

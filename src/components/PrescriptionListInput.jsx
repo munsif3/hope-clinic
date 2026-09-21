@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useId } from 'react';
+import { changePrescription } from '../utils/visits';
 import { Plus, Trash2, Pill, Search, AlertCircle } from 'lucide-react';
 
 export default function PrescriptionListInput({
@@ -9,6 +10,7 @@ export default function PrescriptionListInput({
     onAddNewMedicine // Function(name) -> void (opens modal)
 }) {
     // Ensure items is always an array
+    const inputPrefix = useId();
     const listItems = Array.isArray(items) ? items : [];
     const [focusedIndex, setFocusedIndex] = useState(null);
     const [suggestions, setSuggestions] = useState([]);
@@ -39,7 +41,7 @@ export default function PrescriptionListInput({
 
     const handleChange = (index, field, value) => {
         const newItems = [...listItems];
-        newItems[index] = { ...newItems[index], [field]: value };
+        newItems[index] = changePrescription(newItems[index], field, value);
         onChange(newItems);
 
         // Update suggestions if name changes
@@ -76,7 +78,7 @@ export default function PrescriptionListInput({
     };
 
     const handleAddNew = (index, name) => {
-        onAddNewMedicine(name);
+        onAddNewMedicine(name, index);
         setFocusedIndex(null);
     };
 
@@ -100,16 +102,16 @@ export default function PrescriptionListInput({
                             <button
                                 type="button"
                                 onClick={() => handleRemove(index)}
-                                className="absolute top-3 right-3 text-slate-400 hover:text-red-500 transition-colors"
-                                title="Remove"
+                                className="absolute top-1 right-1 p-2 text-slate-500 hover:text-red-600 transition-colors"
+                                aria-label={"Remove medicine " + (index + 1)}
                             >
                                 <Trash2 size={18} />
                             </button>
 
-                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                            <div className="prescription-fields grid grid-cols-1 md:grid-cols-12 gap-4 pr-5">
                                 {/* Medication Name with Autocomplete */}
                                 <div className="md:col-span-4 space-y-1 relative">
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                    <label htmlFor={inputPrefix + index + "-name"} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                                         Medication
                                     </label>
                                     <div className="relative">
@@ -120,7 +122,8 @@ export default function PrescriptionListInput({
                                             type="text"
                                             placeholder="e.g. Paracetamol"
                                             className="input py-2 pl-9 text-sm font-bold text-slate-700 w-full"
-                                            value={item.name || ''}
+                                            id={inputPrefix + index + "-name"}
+                                        value={item.name || ''}
                                             onChange={(e) => handleChange(index, 'name', e.target.value)}
                                             onFocus={(e) => handleFocus(index, e.target.value)}
                                             autoComplete="off"
@@ -145,7 +148,7 @@ export default function PrescriptionListInput({
                                             ))}
 
                                             {/* Add New Option */}
-                                            {(!suggestions.some(s => s.name.toLowerCase() === item.name.toLowerCase())) && (
+                                            {onAddNewMedicine && (!suggestions.some(s => s.name.toLowerCase() === item.name.toLowerCase())) && (
                                                 <button
                                                     type="button"
                                                     className="w-full text-left px-4 py-2 hover:bg-indigo-50 text-indigo-600 font-medium flex items-center gap-2 border-t border-slate-100"
@@ -161,13 +164,17 @@ export default function PrescriptionListInput({
 
                                 {/* Quantity */}
                                 <div className="md:col-span-2 space-y-1">
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                                        Qty
+                                    <label htmlFor={inputPrefix + index + "-quantity"} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                        Dispensed qty
                                     </label>
                                     <input
                                         type="number"
                                         placeholder="10"
+                                        min="0"
+                                        step="any"
+                                        aria-label="Medicine quantity"
                                         className="input py-2 text-sm w-full font-bold text-slate-800"
+                                        id={inputPrefix + index + "-quantity"}
                                         value={item.quantity || ''}
                                         onChange={(e) => handleChange(index, 'quantity', e.target.value)}
                                     />
@@ -175,13 +182,14 @@ export default function PrescriptionListInput({
 
                                 {/* Dosage */}
                                 <div className="md:col-span-2 space-y-1">
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                    <label htmlFor={inputPrefix + index + "-dosage"} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                                         Dosage
                                     </label>
                                     <input
                                         type="text"
                                         placeholder="500mg"
                                         className="input py-2 text-sm w-full"
+                                        id={inputPrefix + index + "-dosage"}
                                         value={item.dosage || ''}
                                         onChange={(e) => handleChange(index, 'dosage', e.target.value)}
                                     />
@@ -189,13 +197,14 @@ export default function PrescriptionListInput({
 
                                 {/* Frequency */}
                                 <div className="md:col-span-2 space-y-1">
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                    <label htmlFor={inputPrefix + index + "-frequency"} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                                         Frequency
                                     </label>
                                     <input
                                         type="text"
                                         placeholder="1-0-1"
                                         className="input py-2 text-sm w-full"
+                                        id={inputPrefix + index + "-frequency"}
                                         value={item.frequency || ''}
                                         onChange={(e) => handleChange(index, 'frequency', e.target.value)}
                                     />
@@ -203,13 +212,14 @@ export default function PrescriptionListInput({
 
                                 {/* Duration */}
                                 <div className="md:col-span-2 space-y-1">
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                    <label htmlFor={inputPrefix + index + "-duration"} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                                         Duration
                                     </label>
                                     <input
                                         type="text"
                                         placeholder="5 Days"
                                         className="input py-2 text-sm w-full"
+                                        id={inputPrefix + index + "-duration"}
                                         value={item.duration || ''}
                                         onChange={(e) => handleChange(index, 'duration', e.target.value)}
                                     />
@@ -217,13 +227,14 @@ export default function PrescriptionListInput({
 
                                 {/* Notes */}
                                 <div className="md:col-span-12 space-y-1">
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                    <label htmlFor={inputPrefix + index + "-notes"} className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                                         Notes / Instructions
                                     </label>
                                     <input
                                         type="text"
                                         placeholder="e.g. Take with warm water"
                                         className="input py-2 text-sm w-full text-slate-600"
+                                        id={inputPrefix + index + "-notes"}
                                         value={item.notes || ''}
                                         onChange={(e) => handleChange(index, 'notes', e.target.value)}
                                     />
@@ -232,7 +243,7 @@ export default function PrescriptionListInput({
                         </div>
                     ))
                 ) : (
-                    <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm">
+                    <div className="py-2 text-slate-600 text-sm">
                         No prescriptions added. Click "Add Prescription" to start.
                     </div>
                 )}

@@ -1,92 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../config/firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
-import { Search, UserPlus, ChevronRight } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
 import Loader from '../components/Loader';
+import { matchesPatient, patientIdentity } from '../utils/patients';
 
 export default function Patients() {
     const [patients, setPatients] = useState([]);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
-
+    const [error, setError] = useState(false);
+    const [retry, setRetry] = useState(0);
     useEffect(() => {
-        const fetchPatients = async () => {
-            try {
-                const q = query(collection(db, 'patients'), orderBy('name'));
-                const querySnapshot = await getDocs(q);
-                const patientsData = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                setPatients(patientsData);
-            } catch (error) {
-                console.error("Error fetching patients:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchPatients();
-    }, []);
-
-    const filteredPatients = patients.filter(patient =>
-        patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        patient.contact?.includes(searchTerm)
-    );
-
-    return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <h1 className="text-3xl font-bold text-slate-800">Patients</h1>
-                <Link to="/patients/new" className="btn btn-primary flex items-center gap-2 text-lg">
-                    <UserPlus size={24} />
-                    Add New Patient
-                </Link>
-            </div>
-
-            <div className="card p-4">
-                <div className="relative">
-                    <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={24} />
-                    <input
-                        type="text"
-                        placeholder="Search by name or phone number..."
-                        className="input pl-12"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-            </div>
-
-            {loading ? (
-                <Loader text="Loading patients..." />
-            ) : (
-                <div className="grid gap-4">
-                    {filteredPatients.length === 0 ? (
-                        <div className="text-center py-8 text-slate-500 text-lg">
-                            No patients found.
-                        </div>
-                    ) : (
-                        filteredPatients.map(patient => (
-                            <Link
-                                key={patient.id}
-                                to={`/patients/${patient.id}`}
-                                className="card p-6 flex justify-between items-center hover:shadow-md transition-shadow group"
-                            >
-                                <div>
-                                    <h3 className="text-xl font-bold text-slate-800 group-hover:text-primary transition-colors">
-                                        {patient.name}
-                                    </h3>
-                                    <p className="text-slate-500 text-lg">
-                                        {patient.gender}, {patient.age} years • {patient.contact}
-                                    </p>
-                                </div>
-                                <ChevronRight className="text-slate-300 group-hover:text-primary" size={32} />
-                            </Link>
-                        ))
-                    )}
-                </div>
-            )}
-        </div>
-    );
+        let active = true;
+        getDocs(query(collection(db, 'patients'), orderBy('name'))).then(snapshot => {
+            if (active) { setPatients(snapshot.docs.map(item => ({ ...item.data(), id: item.id }))); setError(false); }
+        }).catch(() => { if (active) setError(true); }).finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [retry]);
+    const matches = patients.filter(patient => matchesPatient(patient, search));
+    return <div className="space-y-5">
+        <header className="workflow-header"><div><h1>Patients</h1><p className="text-slate-600">Find the patient, review their history, and continue to care.</p></div>
+            <Link to="/patients/new?startVisit=1" className="btn btn-primary"><UserPlus size={20} />Register & start visit</Link></header>
+        <label className="workflow-field">Search patients<input type="search" className="input" value={search} onChange={event => setSearch(event.target.value)} placeholder="Name, contact or record ID" /></label>
+        {loading ? <Loader text="Loading patients…" /> : error ? <section role="alert" className="workflow-panel space-y-3"><p>Patients could not be loaded.</p>
+            <button className="btn btn-secondary" onClick={() => { setLoading(true); setRetry(value => value + 1); }}>Try again</button></section> :
+            <section className="patient-directory" aria-label="Patient results"><p className="text-sm text-slate-600 p-4" role="status">{matches.length} matching {matches.length === 1 ? 'patient' : 'patients'}</p>
+                {matches.map(patient => <article key={patient.id} className="patient-directory-row">
+                    <div className="min-w-0"><Link to={`/patients/${patient.id}`} className="font-semibold text-lg workflow-link">{patient.name}</Link>
+                        <p className="text-sm text-slate-600">{patientIdentity(patient)}</p><details><summary className="text-xs">Record ID</summary><p className="text-xs break-all">{patient.id}</p></details></div>
+                    <div className="flex gap-3 flex-wrap"><Link className="btn btn-secondary" to={`/patients/${patient.id}`}>Open record</Link>
+                        <Link className="btn btn-primary" to={`/visits/new?patientId=${encodeURIComponent(patient.id)}`}>Start visit</Link></div>
+                </article>)}
+                {!matches.length && <p className="p-5">{search ? 'No matches. Try a different name or contact before creating a record.' : 'No patients registered yet.'}</p>}
+            </section>}
+    </div>;
 }

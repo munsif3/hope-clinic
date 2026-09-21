@@ -203,7 +203,7 @@ export default function Dashboard() {
             alert: stats.lowStockCount > 0
         },
         {
-            label: "Expected Consultations",
+            label: "Reviews due today",
             value: stats.todayFollowupsList.length,
             icon: Calendar,
             color: "text-purple-600",
@@ -323,7 +323,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8" id="expected-consultations">
                 <div className="card">
                     <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-bold text-slate-800">Today's Expected Consultations</h2>
+                        <h2 className="text-xl font-bold text-slate-800">Reviews due today · not bookings</h2>
                         <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded-full">
                             {stats.todayFollowupsList.length} Due
                         </span>
@@ -363,7 +363,7 @@ export default function Dashboard() {
                         </div>
                     ) : (
                         <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            No consultations scheduled for today.
+                            No pending reviews due today. Open Today to see booked appointments.
                         </div>
                     )}
                 </div>
