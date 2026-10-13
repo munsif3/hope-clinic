@@ -42,6 +42,16 @@ Use `npm.cmd` on Windows PowerShell if needed.
 - Lint: `npm.cmd run lint`
 - Preview: `npm.cmd run preview`
 
+## Branching
+
+Branch from `main` and name branches `<type>/<short-kebab-description>`.
+
+- Types match the commit prefixes: `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/`.
+- Describe the change in 2-5 lowercase words, e.g. `feat/visit-followup-filter`, `fix/print-dosage-wrap`.
+- No auto-generated or random names (e.g. `claude/bold-tesla-ayqfkn`). If your tooling assigns one, rename it before opening a PR.
+- One concern per branch; keep docs, chores and feature work in separate PRs.
+- Use Conventional Commit messages (`feat: ...`, `fix: ...`, `docs: ...`).
+
 ## Repository Layout
 
 - `src/App.jsx`: route tree and provider composition.
